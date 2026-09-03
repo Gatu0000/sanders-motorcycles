@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sanders Motorcycles – Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0d10;color:#fff;font-family:Arial,Helvetica,sans-serif}
+.wrap{max-width:1100px;margin:auto;padding:24px 16px 60px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.logo{font-weight:900;font-size:24px;letter-spacing:1px}.logo span{color:#e31b23}.muted{color:#999}
+button{border:0;border-radius:7px;padding:11px 16px;font-weight:700;cursor:pointer}.red{background:#e31b23;color:#fff}.dark{background:#191d23;color:#fff;border:1px solid #343941}
+.panel{background:#14171c;border:1px solid #292d34;border-radius:12px;padding:20px;margin-bottom:18px}
+h1{margin:0 0 8px;font-size:32px}h2{margin:0 0 16px}h3{margin:0 0 14px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.field label{display:block;color:#aaa;font-size:13px;margin-bottom:5px}.field input,.field select,.field textarea{width:100%;padding:11px;border-radius:7px;border:1px solid #343941;background:#0d0f12;color:#fff}.field textarea{min-height:80px;resize:vertical}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.status{min-height:20px;color:#aaa;margin-top:10px}.error{color:#ff6b6b}.ok{color:#72df83}
+.vehicle{border-top:1px solid #292d34;padding:18px 0}.vehicle:first-child{border-top:0}.vehicle-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}.vehicle-title{font-size:20px;font-weight:800}.price{font-size:20px;font-weight:800;color:#e31b23}.vehicle-grid{margin-top:14px}
+.login{max-width:430px;margin:70px auto}.hidden{display:none}
+@media(max-width:800px){.grid{grid-template-columns:1fr}.wrap{padding:18px 12px 40px}h1{font-size:27px}}
+</style>
+</head>
+<body>
+<div id="loginScreen" class="login">
+  <div class="panel">
+    <div class="logo">SANDERS <span>MOTORCYCLES</span></div>
+    <h1 style="margin-top:18px">Admin bejelentkezés</h1>
+    <p class="muted">Járművek kezelése</p>
+    <div class="field"><label>Felhasználónév</label><input id="loginUser" autocomplete="username" value="admin"></div>
+    <div class="field" style="margin-top:12px"><label>Jelszó</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+    <div class="actions"><button class="red" onclick="login()">Belépés</button></div>
+    <div id="loginStatus" class="status"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+<div class="wrap">
+  <div class="top">
+    <div><div class="logo">SANDERS <span>MOTORCYCLES</span></div><div class="muted">Adminisztrációs felület</div></div>
+    <div class="actions"><button class="dark" onclick="location.href='index.html'">Nyilvános oldal</button><button class="red" onclick="logout()">Kijelentkezés</button></div>
+  </div>
+
+  <div class="panel">
+    <h2>Új jármű hozzáadása</h2>
+    <div id="formGrid" class="grid"></div>
+    <div class="actions"><button class="red" onclick="saveVehicle()">Jármű mentése</button><button class="dark" onclick="resetForm()">Űrlap törlése</button></div>
+    <div id="formStatus" class="status"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Jelenlegi járművek</h2>
+    <div id="list">Betöltés...</div>
+  </div>
+</div>
+</div>
+
+<script>
+const SUPABASE_URL='https://zmoruliakdjvmzgcigqw.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_Z2ZYlFv0J79wkMtUMqBygw_KJ8mV0-0';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+
+const fields=[
+ ['name','Jármű neve','text'],['type','Típus','text'],['fuel','Üzemanyag','text'],['km','Km óra','number'],
+ ['engine','Motor','text'],['transmission','Váltó','text'],['ecu','ECU','text'],['brakes','Fék','text'],
+ ['tires','Gumi','text'],['turbo','Turbó','text'],['weight_reduction','Súlycsökkentés','text'],
+ ['suspension','Futómű','text'],['extras','Egyéb extrák','text'],['price','Ár (Ft)','number'],['image_url','Kép URL','url']
+];
+let editingId=null;
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+
+function buildForm(){
+ const g=document.getElementById('formGrid');
+ g.innerHTML=fields.map(([key,label,type])=>`
+ <div class="field"><label>${label}</label><input id="f_${key}" type="${type}" ${key==='km'?'min="0"':''}></div>`).join('');
+}
+
+function getForm(){
+ const o={};
+ fields.forEach(([k,,t])=>{
+   const v=document.getElementById('f_'+k).value;
+   o[k]=(t==='number')?(v===''?0:Number(v)):v.trim();
+ });
+ return o;
+}
+
+function setForm(v){
+ fields.forEach(([k])=>document.getElementById('f_'+k).value=v[k]??'');
+ editingId=v.id||null;
+ document.querySelector('#formGrid').previousElementSibling.textContent=editingId?'Jármű szerkesztése':'Új jármű hozzáadása';
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function resetForm(){
+ editingId=null;
+ fields.forEach(([k])=>document.getElementById('f_'+k).value=k==='extras'?'-':(k==='engine'||k==='transmission'||k==='ecu'||k==='brakes'||k==='tires'||k==='turbo'||k==='weight_reduction'||k==='suspension'?'Gyári':''));
+ document.querySelector('#formGrid').previousElementSibling.textContent='Új jármű hozzáadása';
+ document.getElementById('formStatus').textContent='';
+}
+
+async function login(){
+ const u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;
+ const st=document.getElementById('loginStatus');st.className='status';st.textContent='Bejelentkezés...';
+ try{
+   const {data:email,error:e}=await sb.rpc('get_login_email',{p_username:u});
+   if(e||!email) throw new Error('bad');
+   const {error}=await sb.auth.signInWithPassword({email,password:p});
+   if(error) throw new Error('bad');
+   const {data:ok,error:ae}=await sb.rpc('is_admin');
+   if(ae||ok!==true){await sb.auth.signOut();throw new Error('notadmin')}
+   showApp(); await loadVehicles();
+ }catch(e){
+   st.className='status error';
+   st.textContent=e.message==='notadmin'?'Nincs admin jogosultság.':'Hibás felhasználónév vagy jelszó.';
+ }
+}
+
+async function logout(){await sb.auth.signOut();document.getElementById('app').classList.add('hidden');document.getElementById('loginScreen').classList.remove('hidden');}
+
+function showApp(){document.getElementById('loginScreen').classList.add('hidden');document.getElementById('app').classList.remove('hidden');resetForm();}
+
+async function loadVehicles(){
+ const {data,error}=await sb.from('vehicles').select('*').order('name');
+ const list=document.getElementById('list');
+ if(error){list.innerHTML='<div class="error">Nem sikerült betölteni a járműveket.</div>';return;}
+ if(!data.length){list.innerHTML='<div class="muted">Nincs jármű.</div>';return;}
+ list.innerHTML=data.map(v=>`
+ <div class="vehicle">
+  <div class="vehicle-head">
+   <div><div class="vehicle-title">${esc(v.name)}</div><div class="muted">${esc(v.type)} • ${esc(v.fuel)} • ${Number(v.km).toLocaleString('hu-HU')} km</div></div>
+   <div><div class="price">${Number(v.price).toLocaleString('hu-HU')} Ft</div><div class="actions"><button class="dark" onclick='editVehicle(${JSON.stringify(v).replace(/'/g,"&#039;")})'>Szerkesztés</button><button class="red" onclick="deleteVehicle('${v.id}')">Törlés</button></div></div>
+  </div>
+ </div>`).join('');
+}
+
+function editVehicle(v){setForm(v);}
+
+async function saveVehicle(){
+ const status=document.getElementById('formStatus');status.className='status';status.textContent='Mentés...';
+ const v=getForm(); if(!v.name){status.className='status error';status.textContent='A jármű neve kötelező.';return;}
+ let result;
+ if(editingId) result=await sb.from('vehicles').update(v).eq('id',editingId);
+ else result=await sb.from('vehicles').insert(v);
+ if(result.error){status.className='status error';status.textContent='Mentési hiba: '+result.error.message;return;}
+ status.className='status ok';status.textContent='Sikeresen mentve.';
+ resetForm();await loadVehicles();
+}
+
+async function deleteVehicle(id){
+ if(!confirm('Biztosan törlöd ezt a járművet?')) return;
+ const {error}=await sb.from('vehicles').delete().eq('id',id);
+ if(error){alert('Törlési hiba: '+error.message);return;}
+ await loadVehicles();
+}
+
+async function init(){
+ buildForm();
+ const {data:{session}}=await sb.auth.getSession();
+ if(session){
+   const {data:ok}=await sb.rpc('is_admin');
+   if(ok===true){showApp();loadVehicles();}
+ }
+}
+init();
+</script>
+</body>
+</html>
